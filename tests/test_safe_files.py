@@ -50,7 +50,9 @@ def test_reader_rejects_symlinks_at_every_component(tmp_path, position):
             pytest.fail("followed an agent symlink")
 
 
-@pytest.mark.parametrize("file_kind", ["directory", "fifo"])
+@pytest.mark.parametrize(
+    "file_kind", ["directory", pytest.param("fifo", marks=pytest.mark.skipif(os.name == "nt", reason="POSIX FIFO"))]
+)
 def test_reader_rejects_nonregular_files_without_blocking(tmp_path, file_kind):
     path = tmp_path / "input"
     if file_kind == "directory":
@@ -62,6 +64,7 @@ def test_reader_rejects_nonregular_files_without_blocking(tmp_path, file_kind):
             pytest.fail("accepted a nonregular file")
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX descriptor lookup; Windows pins directories against rename")
 def test_directory_swap_cannot_redirect_a_later_lookup(tmp_path, monkeypatch):
     root = tmp_path / "root"
     folder = root / "nested"
@@ -85,6 +88,7 @@ def test_directory_swap_cannot_redirect_a_later_lookup(tmp_path, monkeypatch):
     assert (folder / "note").read_text() == "secret"
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX unlink; Windows pins files against replacement")
 def test_final_file_swap_cannot_redirect_an_opened_stream(tmp_path, monkeypatch):
     root = tmp_path / "root"
     root.mkdir()
@@ -107,6 +111,7 @@ def test_final_file_swap_cannot_redirect_an_opened_stream(tmp_path, monkeypatch)
     assert target.read_text() == "secret"
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX os.open instrumentation")
 def test_file_changed_to_symlink_before_open_fails_closed(tmp_path, monkeypatch):
     root = tmp_path / "root"
     root.mkdir()

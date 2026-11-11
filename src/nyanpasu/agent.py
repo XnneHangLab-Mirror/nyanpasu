@@ -6,6 +6,7 @@ import functools
 import hashlib
 import json
 import os
+import platform
 import random
 import time
 import traceback
@@ -112,7 +113,7 @@ class AgentService:
         self._subtask_preparers: dict[str, SubtaskPreparer] = {}
         self._task_preparers: dict[str, TaskPreparer] = {}
         self._memory_policies: dict[tuple[str, str], MemoryPolicy] = {}
-        self._owner_id = f"{os.uname().nodename}:{os.getpid()}:{id(self)}"
+        self._owner_id = f"{platform.node()}:{os.getpid()}:{id(self)}"
 
     async def startup(self) -> None:
         migrated = False

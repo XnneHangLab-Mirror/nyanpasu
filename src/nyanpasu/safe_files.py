@@ -20,8 +20,17 @@ def open_regular_file(root: Path, relative_path: str | Path) -> Generator[Binary
     Callers must inspect size and read using this stream, never reopen its path.
     """
     relative = Path(relative_path)
-    if relative.is_absolute() or not relative.parts or ".." in relative.parts:
+    if relative.anchor or not relative.parts or ".." in relative.parts:
         raise ValueError("file path must be relative and stay within its root")
+    if os.name == "nt":
+        # Reject alternate data streams and Win32 path normalization aliases.
+        if any(":" in part or part.endswith((".", " ")) for part in relative.parts):
+            raise ValueError("file path must name a regular relative path")
+        from nyanpasu.windows_files import open_windows_file
+
+        with open_windows_file(root, relative) as stream:
+            yield stream
+        return
     directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
     directory = os.open(root, directory_flags)
     try:

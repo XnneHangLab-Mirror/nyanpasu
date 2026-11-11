@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import socket
 import sys
 from pathlib import Path
@@ -13,9 +14,11 @@ def command(control: Path) -> list[str]:
 
 def call_control(control: Path, request: dict[str, Any]) -> Any:
     capability = json.loads(control.read_text())
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+    address = capability.get("address")
+    family = socket.AF_INET if os.name == "nt" else socket.AF_UNIX
+    with socket.socket(family, socket.SOCK_STREAM) as client:
         client.settimeout(60)
-        client.connect(capability["socket"])
+        client.connect(tuple(address) if address is not None else capability["socket"])
         client.sendall(json.dumps({**request, "token": capability["token"]}).encode() + b"\n")
         with client.makefile("rb") as reader:
             response = json.loads(reader.readline())

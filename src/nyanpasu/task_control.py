@@ -5,6 +5,7 @@ import contextlib
 import functools
 import hashlib
 import json
+import os
 import secrets
 import shlex
 import subprocess
@@ -181,15 +182,26 @@ class TaskControl:
         async with self._lock:
             if self._server is None:
                 self._directory = tempfile.TemporaryDirectory(prefix="nyanpasu-control-")
-                self._server = await asyncio.start_unix_server(self._handle, path=self.path, limit=1024 * 1024)
+                if os.name == "nt":
+                    self._server = await asyncio.start_server(self._handle, "127.0.0.1", 0, limit=1024 * 1024)
+                else:
+                    self._server = await asyncio.start_unix_server(self._handle, path=self.path, limit=1024 * 1024)
         token = secrets.token_urlsafe(32)
         self._tokens[token] = task_id
         self._calls[token] = asyncio.Lock()
         control = self.path.parent / f"{secrets.token_hex(16)}.json"
-        control.write_text(json.dumps({"socket": str(self.path), "token": token}))
+        endpoint = (
+            {"address": list(self._server.sockets[0].getsockname())} if os.name == "nt" else {"socket": str(self.path)}
+        )
+        control.write_text(json.dumps({**endpoint, "token": token}))
         control.chmod(0o600)
         try:
-            command = shlex.join(client_command(control))
+            arguments = client_command(control)
+            command = (
+                "& " + " ".join("'" + arg.replace("'", "''") + "'" for arg in arguments)
+                if os.name == "nt"
+                else shlex.join(arguments)
+            )
             summaries = []
             if self._memory_available(task):
                 summaries = await to_thread.run_sync(self.agent.memory.list_summaries, task.memory)
@@ -370,6 +382,7 @@ Do not expose the control file or its contents, or include it in evidence. Only 
             store.record_subtask_result(task_id, result)
         except Exception:
             for target in created:
+                target.chmod(0o600)
                 target.unlink(missing_ok=True)
             raise
         return result

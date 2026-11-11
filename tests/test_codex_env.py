@@ -170,7 +170,7 @@ def test_backend_reuses_environment_across_restarts(tmp_path: Path, monkeypatch)
                             )
                         )
                     },
-                    command=(str(program),),
+                    command=(sys.executable, str(program)),
                 )
             )
         },

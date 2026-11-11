@@ -337,7 +337,8 @@ async def test_control_cli_scopes_calls_freezes_evidence_and_revokes_capability(
         await agent.submit(_task("parent"))
         await started.wait()
         command = next(line for line in backend.instructions[0].splitlines() if line.startswith("Pipe a JSON"))
-        argv = shlex.split(command.split("request to: ")[1])
+        text = command.split("request to: ")[1]
+        argv = shlex.split(text.removeprefix("& "))
         control = Path(argv[-2])
         capability = json.loads(control.read_text())
         proc = await asyncio.create_subprocess_exec(

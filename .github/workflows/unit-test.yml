@@ -46,6 +46,26 @@ jobs:
           pnpm exec playwright install --with-deps chromium
           pnpm exec playwright test
 
+  windows-runtime:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.3.3
+
+      - name: Install dependencies
+        run: uv sync --locked --all-extras --dev --python 3.14
+
+      - name: Check Windows runtime
+        run: >-
+          uv run pytest -q
+          tests/test_windows.py tests/test_database.py tests/test_safe_files.py
+          tests/test_memory.py tests/test_subtask_runtime.py tests/test_subtask_state.py
+          tests/test_execution.py tests/test_git_ops.py tests/test_config.py
+          tests/test_web.py tests/test_store.py tests/test_codex_env.py
+
   unit-test:
     runs-on: ubuntu-latest
     strategy:

@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
+import stat
 import subprocess
+import sys
 import tarfile
 import tempfile
 import threading
@@ -26,7 +29,22 @@ def safe_slug(value: str) -> str:
 
 
 def context_directory(value: str) -> str:
-    return f"{safe_slug(value)[:64]}-{hashlib.sha256(value.encode()).hexdigest()[:32]}"
+    # Leave room for nested event workspaces and Git's internal paths on Windows.
+    limit = 16 if os.name == "nt" else 64
+    return f"{safe_slug(value)[:limit]}-{hashlib.sha256(value.encode()).hexdigest()[:32]}"
+
+
+def remove_tree(path: Path) -> None:
+    def retry_readonly(function, name, error):
+        if os.name != "nt" or not isinstance(error, PermissionError) or Path(name).stat().st_mode & stat.S_IWRITE:
+            raise error
+        Path(name).chmod(stat.S_IREAD | stat.S_IWRITE)
+        function(name)
+
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(path, onexc=retry_readonly)
+    else:
+        shutil.rmtree(path, onerror=lambda function, name, error: retry_readonly(function, name, error[1]))
 
 
 class WorktreeManager:
@@ -174,7 +192,7 @@ class WorktreeManager:
             return
         if workspace is None:
             if path.resolve().parent == (self.config.state_dir / "scratch").resolve():
-                shutil.rmtree(path)
+                remove_tree(path)
             return
         with self._workspace_lock(workspace.key):
             self._remove_worktree_unlocked(workspace, path)
@@ -206,7 +224,10 @@ class WorktreeManager:
         return (path / ".git").is_dir()
 
     def _clone_workspace(self, workspace: WorkspaceRef, path: Path) -> None:
-        self._run(["git", "clone", "--no-checkout", str(workspace.local_path), str(path)], Path.cwd())
+        self._run(
+            ["git", "clone", "-c", "core.longpaths=true", "--no-checkout", str(workspace.local_path), str(path)],
+            Path.cwd(),
+        )
         if workspace.remote:
             self._run(["git", "remote", "set-url", "origin", workspace.remote], path)
 
@@ -287,17 +308,25 @@ class WorktreeManager:
                 check=True,
             )
             pack.seek(0)
-            subprocess.run(["git", "unpack-objects"], cwd=path, stdin=pack, capture_output=True, check=True)
+            subprocess.run(
+                ["git", "-c", "core.longpaths=true", "unpack-objects"],
+                cwd=path,
+                stdin=pack,
+                capture_output=True,
+                check=True,
+            )
 
     def _remove_worktree_unlocked(self, workspace: WorkspaceRef, path: Path) -> None:
         with suppress(subprocess.CalledProcessError):
             self._run(["git", "worktree", "remove", "--force", str(path)], workspace.local_path)
         if path.exists():
-            shutil.rmtree(path)
+            remove_tree(path)
         with suppress(subprocess.CalledProcessError):
             self._run(["git", "worktree", "prune"], workspace.local_path)
 
     def _run(self, argv: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+        if os.name == "nt" and argv[0] == "git":
+            argv = ["git", "-c", "core.longpaths=true", *argv[1:]]
         return subprocess.run(argv, cwd=cwd, text=True, capture_output=True, check=True)
 
     def _workspace_lock(self, key: str) -> threading.Lock:

@@ -117,7 +117,9 @@ while True:
         assert len(pids) == 1 and pids[0] != ready["pid"]
         sampler = ProcessResources()
         first = sampler.sample({"claude": pids})["claude"]
-        assert first["process_count"] == 2
+        # Windows virtualenv launchers add wrapper processes to the tree.
+        assert first["process_count"] >= 2
+        assert ready["pid"] in {p.pid for p in psutil.Process(pids[0]).children(recursive=True)}
         assert first["rss_bytes"] >= 32 * 1024 * 1024
         assert first["cpu_percent"] is None
         assert (await asyncio.wait_for(events.get(), 5))["type"] == "tick"

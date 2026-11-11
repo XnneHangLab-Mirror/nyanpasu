@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import contextlib
-import fcntl
 import hashlib
 import json
 import logging
@@ -15,6 +14,8 @@ from dataclasses import asdict, dataclass, field, fields, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
+
+import portalocker
 
 from nyanpasu.memory_search import bm25_scores, tokenize
 
@@ -266,6 +267,9 @@ class MemoryService:
 
     def __init__(self, root: Path):
         self.root = Path(root).resolve()
+        if os.name == "nt" and not str(self.root).startswith("\\\\?\\"):
+            value = str(self.root)
+            self.root = Path("\\\\?\\UNC\\" + value[2:] if value.startswith("\\\\") else "\\\\?\\" + value)
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
 
     def _directory(self, domain: str) -> Path:
@@ -285,11 +289,11 @@ class MemoryService:
             return
         with (directory / "lock").open("a+b") as lock:
             Path(lock.name).chmod(0o600)
-            fcntl.flock(lock, fcntl.LOCK_EX if write else fcntl.LOCK_SH)
+            portalocker.lock(lock, portalocker.LOCK_EX if write else portalocker.LOCK_SH)
             try:
                 yield directory
             finally:
-                fcntl.flock(lock, fcntl.LOCK_UN)
+                portalocker.unlock(lock)
 
     @staticmethod
     def _write_domain(access: MemoryAccess) -> str:
@@ -310,7 +314,7 @@ class MemoryService:
     @staticmethod
     def _object(directory: Path, filename: str) -> tuple[dict[str, Any], str, str]:
         raw = (directory / "objects" / filename).read_bytes()
-        header, body = raw.decode().removeprefix("---\n").split("\n---\n\n", 1)
+        header, body = raw.decode().replace("\r\n", "\n").removeprefix("---\n").split("\n---\n\n", 1)
         return json.loads(header), body.removesuffix("\n"), hashlib.sha256(raw).hexdigest()
 
     def _checkpoint(self, directory: Path, domain: str, filename: str) -> MemorySourceCheckpoint:
@@ -793,11 +797,13 @@ class MemoryService:
                 stream.flush()
                 os.fsync(stream.fileno())
             temporary.replace(path)
-            descriptor = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
-            try:
-                os.fsync(descriptor)
-            finally:
-                os.close(descriptor)
+            # Windows has no POSIX directory fsync; the file is flushed before replacement.
+            if os.name != "nt":
+                descriptor = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+                try:
+                    os.fsync(descriptor)
+                finally:
+                    os.close(descriptor)
         finally:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)

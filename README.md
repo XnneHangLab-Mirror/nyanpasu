@@ -280,6 +280,54 @@ It accepts a repository and task description, builds a concrete PR plan, and ask
 
 When `follow_up_enabled = true`, PR maker records PRs it created and polls only those PRs for actionable follow-up signals. A follow-up task reuses the original task context key and PR branch workspace, so the agent keeps the same session while the backend stays the same, and the core runtime serializes work for that PR. Follow-up tasks ask the agent to commit and push to the existing PR branch instead of opening a second PR.
 
+## Windows
+
+Native Windows preparation uses PowerShell, Git for Windows, Python 3.14, uv,
+Node.js and the pnpm version pinned in `package.json`:
+
+```powershell
+uv sync --locked --all-extras --dev --python 3.14
+pnpm install --frozen-lockfile
+pnpm run build
+uv run nyanpasu --help
+```
+
+Use a short checkout/state path (for example `D:\\src\\nyanpasu` and
+`D:\\nyanpasu-state`) to leave room for Git workspaces and target repositories.
+Set `$env:NYANPASU_HOME` to the state directory, create its `config.toml` using
+`examples/config.toml`, then run `uv run nyanpasu serve`. Start with
+`plugins.enabled = []` to inspect the Dashboard without admitting GitHub work.
+The service uses the Windows account's existing Codex/Claude configuration;
+CC Switch file-based settings remain owned by those native CLIs. Required
+provider/proxy environment variables must be forwarded explicitly through the
+backend configuration. Install reviewer tools and global skills for each selected
+CLI as described in [dependencies](DEPENDENCIES/index.md).
+
+Windows uses `portalocker` for shared/exclusive memory locks and `pywin32` for
+safe history/artifact reads. Readers reject reparse points (including junctions)
+and hold directory/file handles without delete sharing until the read ends.
+File contents are flushed before atomic replacement; POSIX directory `fsync` is
+not available on Windows. Memory paths use extended-length Windows paths.
+Managed Git clones enable `core.longpaths`, and workspace labels are shorter on
+Windows while retaining their identity hash.
+
+Task control uses an ephemeral authenticated loopback TCP endpoint on Windows
+and Unix sockets on POSIX. The advertised Windows control command targets
+PowerShell. Capability files and native CLI configuration must remain accessible
+only to the intended service account and trusted administrators. Cancelling work
+stops owned process descendants before releasing their workspace.
+
+Run Windows filesystem, control and lifecycle regressions with:
+
+```powershell
+uv run pytest tests/test_windows.py tests/test_safe_files.py tests/test_memory.py tests/test_subtask_runtime.py tests/test_execution.py tests/test_git_ops.py -q
+```
+
+These offline checks do not verify provider credentials or establish that a
+particular CLI version supports all required native APIs. Validate your selected
+backend and one configured PR in dry-run mode before enabling polling or GitHub
+publication.
+
 ## Plugin Contract
 
 A plugin exposes a `NyanpasuPlugin` through the `nyanpasu.plugins` entry point group.

@@ -6,6 +6,7 @@ import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from nyanpasu.database import database_connection
 from nyanpasu.git_ops import safe_slug
 from nyanpasu_github_reviewer.ci import CISnapshot
 from nyanpasu_github_reviewer.models import (
@@ -20,6 +21,7 @@ from nyanpasu_github_reviewer.models import (
 )
 
 if TYPE_CHECKING:
+    from contextlib import AbstractContextManager
     from pathlib import Path
 
     from nyanpasu_github.models import PullRequestRef
@@ -31,11 +33,8 @@ class GitHubReviewerStore:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path, timeout=30)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        return conn
+    def _connect(self) -> AbstractContextManager[sqlite3.Connection]:
+        return database_connection(self.db_path)
 
     def _init_db(self) -> None:
         with self._connect() as conn:

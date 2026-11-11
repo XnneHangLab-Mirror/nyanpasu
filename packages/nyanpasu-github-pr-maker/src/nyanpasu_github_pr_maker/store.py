@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 import time
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from nyanpasu.database import database_connection
+
 if TYPE_CHECKING:
+    import sqlite3
+    from contextlib import AbstractContextManager
     from pathlib import Path
 
 
@@ -55,11 +58,8 @@ class GitHubPrMakerStore:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path, timeout=30)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        return conn
+    def _connect(self) -> AbstractContextManager[sqlite3.Connection]:
+        return database_connection(self.db_path)
 
     def _init_db(self) -> None:
         with self._connect() as conn:
